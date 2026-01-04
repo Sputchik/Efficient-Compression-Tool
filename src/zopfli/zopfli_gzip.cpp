@@ -27,6 +27,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "zopfli.h"
 #include "zlib_container.h"
 #include "../main.h"
+#include "../unicode_path.h"
 #include <time.h>
 
 #define ZOPFLI_APPEND_DATA(/* T */ value, /* T** */ data, /* size_t* */ size) {\
@@ -194,34 +195,59 @@ static void ZopfliGzipCompress(unsigned mode, unsigned multithreading,
 }
 
 static void LoadGzip(const char* filename, unsigned char** out, long long* outsize_p) {
-  gzFile r = gzopen(filename, "rb");
-  if (!r) {
-    *outsize_p = -1;
-    return;
+  // Read the entire file using UTF-8 aware fopen and decompress using zlib inflate
+  FILE* f = fopen_utf8(filename, "rb");
+  if (!f) { *outsize_p = -1; return; }
+  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); *outsize_p = -1; return; }
+  long long fsize = ftell(f);
+  rewind(f);
+  if (fsize < 0) { fclose(f); *outsize_p = -1; return; }
+  unsigned char* inbuf = (unsigned char*)malloc((size_t)fsize + 1);
+  if (!inbuf) { fclose(f); *outsize_p = -1; return; }
+  size_t read = fread(inbuf, 1, (size_t)fsize, f);
+  fclose(f);
+  if (read != (size_t)fsize) { free(inbuf); *outsize_p = -1; return; }
+
+  z_stream strm;
+  memset(&strm, 0, sizeof(strm));
+  strm.next_in = inbuf;
+  strm.avail_in = (uInt)read;
+  if (inflateInit2(&strm, 16 + MAX_WBITS) != Z_OK) {
+    free(inbuf);
+    *outsize_p = -1; return;
   }
-#define GZIP_READ_SIZE 65536
-  size_t alloc_size = GZIP_READ_SIZE;
-  *out = (unsigned char*)malloc(alloc_size + 16);
+
+  const size_t CHUNK = 65536;
+  unsigned char* outbuf = NULL;
+  size_t out_capacity = 0;
   size_t out_size = 0;
+  int ret;
+  unsigned char tmp[CHUNK];
   do {
-    int bytes = gzread(r, (*out) + out_size, GZIP_READ_SIZE);
-    if (bytes > 0) {
-      out_size += bytes;
-      if (alloc_size - out_size < GZIP_READ_SIZE) {
-        alloc_size *= 2;
-        (*out) = (unsigned char*)realloc(*out, alloc_size + 16);
-      }
-    } else if (bytes == 0) {
-      break;
-    } else {  // bytes < 0
-      fprintf(stderr, "%s: gzip decompression error\n", filename);
-      gzclose_r(r);
-      *outsize_p = -1;
-      return;
+    strm.next_out = tmp;
+    strm.avail_out = CHUNK;
+    ret = inflate(&strm, Z_NO_FLUSH);
+    if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR) {
+      inflateEnd(&strm);
+      free(inbuf);
+      free(outbuf);
+      *outsize_p = -1; return;
     }
-  }
-  while (!gzeof(r));
-  gzclose_r(r);
+    size_t have = CHUNK - strm.avail_out;
+    if (have) {
+      if (out_size + have > out_capacity) {
+        out_capacity = out_capacity ? out_capacity * 2 : have + 16;
+        outbuf = (unsigned char*)realloc(outbuf, out_capacity);
+        if (!outbuf) { inflateEnd(&strm); free(inbuf); *outsize_p = -1; return; }
+      }
+      memcpy(outbuf + out_size, tmp, have);
+      out_size += have;
+    }
+  } while (ret != Z_STREAM_END && strm.avail_in > 0);
+
+  inflateEnd(&strm);
+  free(inbuf);
+  *out = outbuf;
   *outsize_p = (long long)out_size;
 }
 
@@ -230,7 +256,7 @@ static void LoadGzip(const char* filename, unsigned char** out, long long* outsi
  */
 static void LoadFile(const char* filename,
                      unsigned char** out, long long* outsize) {
-  FILE* file = fopen(filename, "rb");
+  FILE* file = fopen_utf8(filename, "rb");
   if (!file) {*outsize = -1; return;}
 
   fseek(file , 0 , SEEK_END);
@@ -259,7 +285,7 @@ static void LoadFile(const char* filename,
  */
 static void SaveFile(const char* filename,
                      const unsigned char* in, size_t insize) {
-  FILE* file = fopen(filename, "wb");
+  FILE* file = fopen_utf8(filename, "wb");
   if (!file){
     fprintf(stderr, "Can't write to file %s\n", filename);
   }
@@ -290,7 +316,7 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, u
   }
 
   struct stat st;
-  stat(infilename, &st);
+  stat_utf8(infilename, &st);
   time_t time = st.st_mtime;
   if (!ZIP) {
     ZopfliGzipCompress(mode, multithreading, in, insize, time, &out, &outsize, (std::string)(gzip_name ? gzip_name : ""));

@@ -141,6 +141,8 @@ bool GetCDHeaders(const uint8_t* fp, size_t size, const EOCD& eocd, size_t zip_o
 
 }  // namespace
 
+#include "../unicode_path.h"
+
 uint32_t Zip::RecompressFile(unsigned char* data, uint32_t size, uint32_t size_leanified, string filename, const ECTOptions& Options){
   bool isZIP = size > sizeof(Zip::header_magic) && memcmp(data, Zip::header_magic, sizeof(Zip::header_magic)) == 0;
 
@@ -162,7 +164,7 @@ uint32_t Zip::RecompressFile(unsigned char* data, uint32_t size, uint32_t size_l
   int descriptor = mkstemp(tempname);
   close(descriptor);
   //Just in case
-  unlink(tempname);
+  unlink_utf8(tempname);
 #endif
 
   memcpy(tempname + 9, extension.c_str(), extension.length() + 1);
@@ -170,7 +172,7 @@ uint32_t Zip::RecompressFile(unsigned char* data, uint32_t size, uint32_t size_l
     printf("Error: Can't create temp file\n");
     return size;
   }
-  FILE* stream = fopen(tempname, "wb");
+  FILE* stream = fopen_utf8(tempname, "wb");
 #else
   memcpy(tempname + 9, extension.c_str(), extension.length() + 1);
 
@@ -196,7 +198,7 @@ uint32_t Zip::RecompressFile(unsigned char* data, uint32_t size, uint32_t size_l
   long long new_size = filesize(tempname);
 
   if(new_size < size && new_size >= 0){
-    stream = fopen(tempname, "rb");
+    stream = fopen_utf8(tempname, "rb");
     if(fread(data - size_leanified, 1, new_size, stream) < new_size){
       printf("Error: Read error\n");
     }
@@ -206,7 +208,7 @@ uint32_t Zip::RecompressFile(unsigned char* data, uint32_t size, uint32_t size_l
     fclose(stream);
   }
 
-  unlink(tempname);
+  unlink_utf8(tempname);
   return size;
 }
 

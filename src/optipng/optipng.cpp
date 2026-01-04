@@ -34,6 +34,7 @@
 #include <unistd.h>
 #endif
 
+#include "../unicode_path.h"
 #include "trans.h"
 #include "opngcore.h"
 #include "codec.h"
@@ -174,7 +175,7 @@ static int opng_copy_file(struct opng_session *session, FILE *in_stream, FILE *o
 
 static int opng_optimize_impl(struct opng_session *session, const char *Infile, bool force_no_palette)
 {
-    FILE * fstream = fopen(Infile, "rb");
+    FILE * fstream = fopen_utf8(Infile, "rb");
     if (!fstream)
     {
         opng_error(Infile, "Can't open file");
@@ -221,14 +222,14 @@ static int opng_optimize_impl(struct opng_session *session, const char *Infile, 
       int descriptor = mkstemp(backup_fname);
       close(descriptor);
       //Just in case
-      unlink(backup_fname);
+      unlink_utf8(backup_fname);
 #endif
       memcpy(backup_fname + 9, ".png", 5);
       if (exists(backup_fname)) {
         opng_error(Infile, "Can't back up the output file");
         return -1;
       }
-      backup_stream = fopen(backup_fname, "wb");
+      backup_stream = fopen_utf8(backup_fname, "wb");
 #else
       memcpy(backup_fname, "tmpXXXXXX.png", strlen("tmpXXXXXX.png") + 1);
 
@@ -245,7 +246,7 @@ static int opng_optimize_impl(struct opng_session *session, const char *Infile, 
     if (options->nz) {
         // TODO: May be able to skip previous operation of reading the file or fold
         // the nz pass into regular optimization
-        fstream = fopen(Infile, "rb");
+        fstream = fopen_utf8(Infile, "rb");
         if (!fstream) {
             opng_error(Infile, "Can't reopen file");
         } else {
@@ -295,7 +296,7 @@ static int opng_optimize_impl(struct opng_session *session, const char *Infile, 
             if (new_size <= orig_size) {
                 RenameAndReplace(backup_fname, Infile);
             } else {
-                unlink(backup_fname);
+                unlink_utf8(backup_fname);
             }
         }
     return optimal_filter;

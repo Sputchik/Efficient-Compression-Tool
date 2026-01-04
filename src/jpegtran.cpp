@@ -22,6 +22,7 @@
 #include "mozjpeg/transupp.h"           /* Support routines for jpegtran */
 #include "main.h"
 #include "support.h"
+#include "unicode_path.h"
 
 static size_t jcopy_markers_execute_s (j_decompress_ptr srcinfo, j_compress_ptr dstinfo)
 {
@@ -184,7 +185,7 @@ int mozjpegtran (bool arithmetic, bool progressive, bool strip, unsigned autorot
   }
 
   /* Open the input file. */
-  if (!(fp = fopen(Infile, "rb"))) {
+  if (!(fp = fopen_utf8(Infile, "rb"))) {
     fprintf(stderr, "ECT: can't open %s for reading\n", Infile);
     return 2;
   }
@@ -297,7 +298,7 @@ int mozjpegtran (bool arithmetic, bool progressive, bool strip, unsigned autorot
 
   if (outsize < insize){
     /* Open the output file. */
-    if (!(fp = fopen(Outfile, "wb"))) {
+    if (!(fp = fopen_utf8(Outfile, "wb"))) {
       fprintf(stderr, "ECT: can't open %s for writing\n", Outfile);
       free(outbuffer);
       return 2;

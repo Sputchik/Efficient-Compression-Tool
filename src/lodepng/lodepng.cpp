@@ -42,6 +42,7 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 #ifdef LODEPNG_COMPILE_DISK
 #include <limits.h> /* LONG_MAX */
 #include <stdio.h> /* file handling */
+#include "../unicode_path.h"
 #endif /* LODEPNG_COMPILE_DISK */
 
 #ifdef LODEPNG_COMPILE_ALLOCATORS
@@ -248,7 +249,7 @@ static void lodepng_set32bitInt(unsigned char* buffer, unsigned value) {
 static long lodepng_filesize(const char* filename) {
   FILE* file;
   long size;
-  file = fopen(filename, "rb");
+  file = fopen_utf8(filename, "rb");
   if(!file) return -1;
 
   if(fseek(file, 0, SEEK_END) != 0) {
@@ -268,7 +269,7 @@ static long lodepng_filesize(const char* filename) {
 static unsigned lodepng_buffer_file(unsigned char* out, size_t size, const char* filename) {
   FILE* file;
   size_t readsize;
-  file = fopen(filename, "rb");
+  file = fopen_utf8(filename, "rb");
   if(!file) return 78;
   readsize = fread(out, 1, size, file);
   fclose(file);
@@ -280,7 +281,7 @@ static unsigned lodepng_buffer_file(unsigned char* out, size_t size, const char*
 /*write given buffer to the file, overwriting the file, it doesn't append to it.*/
 static unsigned lodepng_save_file(const unsigned char* buffer, size_t buffersize, const char* filename) {
   FILE* file;
-  file = fopen(filename, "wb");
+  file = fopen_utf8(filename, "wb");
   if(!file) return 79;
   fwrite(buffer, 1, buffersize, file);
   fclose(file);

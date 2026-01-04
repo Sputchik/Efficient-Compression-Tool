@@ -7,6 +7,7 @@
 //
 
 #include "support.h"
+#include "unicode_path.h"
 #include <sys/stat.h>
 #ifdef _WIN32
 #include <Windows.h>
@@ -23,40 +24,32 @@
 #include <stdio.h>
 
 long long filesize (const char * Infile) {
-    struct stat stats;
-    if (stat(Infile, &stats) != 0){
-        return -1;
-    }
-    return stats.st_size;
+    return filesize_utf8(Infile);
 }
 
 bool exists(const char * Infile) {
-    struct stat stats;
-    return stat(Infile, &stats) == 0;
+    return exists_utf8(Infile);
 }
 
 bool writepermission (const char * Infile) {
-    return !access (Infile, W_OK);
+    return access_utf8(Infile, W_OK) == 0;
 }
 
 void RenameAndReplace(const char * Infile, const char * Outfile) {
-#ifdef _WIN32
-    MoveFileExA(Infile, Outfile, MOVEFILE_REPLACE_EXISTING);
-#else
-    rename(Infile, Outfile);
-#endif
+    // rename_utf8 uses MoveFileExW on Windows and standard rename() on POSIX
+    if (rename_utf8(Infile, Outfile) != 0){
+        // best-effort fallback
+        rename(Infile, Outfile);
+    }
 }
 
 bool isDirectory(const char *path) {
-  struct stat sb;
-  if (!stat(path, &sb))
-    return (sb.st_mode & S_IFDIR) != 0;
-  return false;
+  return isDirectory_utf8(path);
 }
 
 time_t get_file_time(const char* Infile){
   struct stat stats;
-  if(stat(Infile, &stats)){
+  if(stat_utf8(Infile, &stats)){
     printf("%s: Could not get time\n", Infile);
     return -1;
   }
@@ -64,10 +57,21 @@ time_t get_file_time(const char* Infile){
 }
 
 void set_file_time(const char* Infile, time_t otime){
+  #ifdef _WIN32
+  struct _utimbuf wtime;
+  wtime.actime = time(0);
+  wtime.modtime = otime;
+  wchar_t* w = utf8_to_wchar(Infile);
+  if(!w || _wutime(w, &wtime)){
+    printf("%s: Could not set time\n", Infile);
+  }
+  if(w) free(w);
+  #else
   struct utimbuf oldtime;
   oldtime.actime = time(0);
   oldtime.modtime = otime;
   if (utime(Infile, &oldtime)){
     printf("%s: Could not set time\n", Infile);
   }
+  #endif
 }

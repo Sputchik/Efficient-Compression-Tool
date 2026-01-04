@@ -25,6 +25,7 @@ add_executable(ect
   LzFind.c
   support.cpp
   zopflipng.cpp
+  unicode_path.cpp
   # Add headers so they get added to things like Xcode projects
   gztools.h
   LzFind.h

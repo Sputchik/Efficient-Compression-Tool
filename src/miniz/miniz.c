@@ -485,7 +485,7 @@ static mz_bool mz_zip_reader_read_central_dir(mz_zip_archive *pZip, mz_uint32 fl
 mz_bool mz_zip_reader_init_file(mz_zip_archive *pZip, const char *pFilename, mz_uint32 flags)
 {
   mz_uint64 file_size;
-  MZ_FILE *pFile = fopen(pFilename, "rb");
+  MZ_FILE *pFile = fopen_utf8(pFilename, "rb");
   if (!pFile)
     return MZ_FALSE;
   if (MZ_FSEEK64(pFile, 0, SEEK_END))
@@ -594,7 +594,7 @@ mz_bool mz_zip_writer_init_file(mz_zip_archive *pZip, const char *pFilename, mz_
   pZip->m_pIO_opaque = pZip;
   if (!mz_zip_writer_init(pZip, size_to_reserve_at_beginning))
     return MZ_FALSE;
-  if (NULL == (pFile = fopen(pFilename, "wb")))
+  if (NULL == (pFile = fopen_utf8(pFilename, "wb")))
   {
     mz_zip_writer_end(pZip);
     return MZ_FALSE;
@@ -637,7 +637,7 @@ mz_bool mz_zip_writer_init_from_reader(mz_zip_archive *pZip, const char *pFilena
     return MZ_FALSE;
   if (!pFilename)
     return MZ_FALSE;
-  if (NULL == (pState->m_pFile = freopen(pFilename, "r+b", pState->m_pFile)))
+  if (NULL == (pState->m_pFile = freopen(pFilename, "r+b", pState->m_pFile))) /* leaving as-is; fallback to reopen with wide APIs is complex */
   {
     // The mz_zip_archive is now in a bogus state because pState->m_pFile is NULL, so just close it.
     mz_zip_reader_end(pZip);

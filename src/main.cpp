@@ -5,6 +5,7 @@
 
 #include "main.h"
 #include "support.h"
+#include "unicode_path.h"
 #include "gztools.h"
 #include "miniz/miniz.h"
 #include <limits.h>
@@ -166,7 +167,7 @@ static int ECTGzip(const char * Infile, const unsigned Mode, unsigned char multi
         RenameAndReplace(out_name, Infile);
       }
       else {
-        unlink(out_name);
+        unlink_utf8(out_name);
       }
       return 0;
     }
@@ -280,7 +281,7 @@ static void OptimizeMP3(const char * Infile, const ECTOptions& Options){
                     OptimizeJPEG("out.jpg", Options);
                 }
                 pic->FromFile("out.jpg");
-                unlink("out.jpg");
+                unlink_utf8("out.jpg");
                 orig.SetPadding(false);
                 //orig.SetCompression(true);
                 if (orig.Size() < start){
@@ -376,7 +377,7 @@ unsigned zipHandler(std::vector<int> args, const char * argv[], int files, const
             if (!realpath(argv[args[0]], abs_path)) {
 #else
             char abs_path[MAX_PATH];
-            if (!GetFullPathNameA(argv[args[0]], MAX_PATH, abs_path, 0)) {
+            if (!GetFullPathUtf8(argv[args[0]], abs_path, MAX_PATH)) {
 #endif
                 printf("Error: Could not find directory\n");
                 return 1;
@@ -434,7 +435,7 @@ unsigned zipHandler(std::vector<int> args, const char * argv[], int files, const
                     if(!file){
                         exit(1);
                     }
-                    FILE* stream = fopen(file_path, "rb");
+                    FILE* stream = fopen_utf8(file_path, "rb");
                     if (!stream){
                         free(file); error = 1; continue;
                     }
@@ -516,12 +517,21 @@ static void multithreadFileLoop(const std::vector<std::string> &fileList, std::a
         if (nextPos >= fileList.size()) {
             break;
         }
-        unsigned localError = fileHandler(fileList[nextPos].c_str(), options, 0);
+        unsigned localError = 0;
+        try {
+            localError = fileHandler(fileList[nextPos].c_str(), options, 0);
+        } catch (const std::exception &e) {
+            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception in thread processing '%s': %s\n", fileList[nextPos].c_str(), e.what());
+            localError = 1;
+        } catch (...) {
+            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: unknown exception in thread processing '%s'\n", fileList[nextPos].c_str());
+            localError = 1;
+        }
         error->fetch_or(localError);
     }
 }
 
-int main(int argc, const char * argv[]) {
+static int run_main(int argc, const char * argv[]) {
     std::atomic<unsigned> error(0);
     ECTOptions Options;
     Options.strip = false;
@@ -623,32 +633,110 @@ int main(int argc, const char * argv[]) {
             std::vector<std::string> fileList;
             for (int j = 0; j < files; j++){
 #ifdef FS_SUPPORTED
+                #ifdef _WIN32
+                wchar_t* warg = utf8_to_wchar(argv[args[j]]);
+                if (!warg) { error = 1; }
+                else {
+                    std::filesystem::path wp(warg);
+                    free(warg);
+                    if (std::filesystem::is_regular_file(wp)){
+                        fileList.push_back(argv[args[j]]);
+                    }
+                    else if (std::filesystem::is_directory(wp)){
+                        if(Options.Recurse){
+                            try {
+                                for (auto& p : std::filesystem::recursive_directory_iterator(wp, std::filesystem::directory_options::skip_permission_denied)){
+                                    char* tmp = wchar_to_utf8(p.path().wstring().c_str());
+                                    if (tmp) {
+                                        fileList.push_back(tmp);
+                                        free(tmp);
+                                    }
+                                }
+                            } catch (const std::filesystem::filesystem_error &e) {
+                                if (getenv("ECT_DEBUG")){
+                                    char* argtmp = wchar_to_utf8(wp.wstring().c_str());
+                                    fprintf(stderr, "ECT_DEBUG: fs error iterating '%s': %s\n", argtmp ? argtmp : "(unknown)", e.what());
+                                    if (argtmp) free(argtmp);
+                                }
+                            } catch (const std::exception &e) {
+                                if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception iterating: %s\n", e.what());
+                            }
+                        }
+                        else{
+                            try {
+                                for (auto& p : std::filesystem::directory_iterator(wp, std::filesystem::directory_options::skip_permission_denied)){
+                                    char* tmp = wchar_to_utf8(p.path().wstring().c_str());
+                                    if (tmp) {
+                                        fileList.push_back(tmp);
+                                        free(tmp);
+                                    }
+                                }
+                            } catch (const std::filesystem::filesystem_error &e) {
+                                if (getenv("ECT_DEBUG")){
+                                    char* argtmp = wchar_to_utf8(wp.wstring().c_str());
+                                    fprintf(stderr, "ECT_DEBUG: fs error iterating '%s': %s\n", argtmp ? argtmp : "(unknown)", e.what());
+                                    if (argtmp) free(argtmp);
+                                }
+                            } catch (const std::exception &e) {
+                                if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception iterating: %s\n", e.what());
+                            }
+                        }
+                    }
+                    else{
+                        // Fallback: direct existence check using UTF-8 wrapper
+                        if (exists_utf8(argv[args[j]])){
+                            fileList.push_back(argv[args[j]]);
+                        } else {
+                            error = 1;
+                        }
+                    }
+                }
+                #else
                 if (std::filesystem::is_regular_file(argv[args[j]])){
                     fileList.push_back(argv[args[j]]);
                 }
                 else if (std::filesystem::is_directory(argv[args[j]])){
-                    if(Options.Recurse){std::filesystem::recursive_directory_iterator a(argv[args[j]]), b;
-                        std::vector<std::filesystem::path> paths(a, b);
-                        for(unsigned i = 0; i < paths.size(); i++){
-                            fileList.push_back(paths[i].string());
+                    if(Options.Recurse){
+                        try {
+                            std::filesystem::recursive_directory_iterator a(argv[args[j]], std::filesystem::directory_options::skip_permission_denied), b;
+                            std::vector<std::filesystem::path> paths(a, b);
+                            for(unsigned i = 0; i < paths.size(); i++){
+                                fileList.push_back(paths[i].string());
+                            }
+                        } catch (const std::filesystem::filesystem_error &e) {
+                            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: fs error iterating '%s': %s\n", argv[args[j]], e.what());
+                        } catch (const std::exception &e) {
+                            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception iterating '%s': %s\n", argv[args[j]], e.what());
                         }
                     }
                     else{
-                        std::filesystem::directory_iterator a(argv[args[j]]), b;
-                        std::vector<std::filesystem::path> paths(a, b);
-                        for(unsigned i = 0; i < paths.size(); i++){
-                            fileList.push_back(paths[i].string());
+                        try {
+                            std::filesystem::directory_iterator a(argv[args[j]], std::filesystem::directory_options::skip_permission_denied), b;
+                            std::vector<std::filesystem::path> paths(a, b);
+                            for(unsigned i = 0; i < paths.size(); i++){
+                                fileList.push_back(paths[i].string());
+                            }
+                        } catch (const std::filesystem::filesystem_error &e) {
+                            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: fs error iterating '%s': %s\n", argv[args[j]], e.what());
+                        } catch (const std::exception &e) {
+                            if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception iterating '%s': %s\n", argv[args[j]], e.what());
                         }
                     }
                 }
                 else{
                     error = 1;
                 }
+                #endif
 #else
                 fileList.push_back(argv[args[j]]);
 #endif
             }
 #ifndef NOMULTI
+            if (getenv("ECT_DEBUG")){
+                for (const auto& f : fileList){
+                    printf("ECT_DEBUG: queued '%s' exists=%d size=%lld\n", f.c_str(), exists_utf8(f.c_str()), filesize_utf8(f.c_str()));
+                }
+            }
             if (Options.FileMultithreading) {
                 std::vector<std::thread> threads;
                 std::atomic<size_t> pos(0);
@@ -661,7 +749,15 @@ int main(int argc, const char * argv[]) {
             }
             else {
                 for (const auto& file : fileList) {
-                    error |= fileHandler(file.c_str(), Options, 0);
+                    try {
+                        error |= fileHandler(file.c_str(), Options, 0);
+                    } catch (const std::exception &e) {
+                        if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: exception processing '%s': %s\n", file.c_str(), e.what());
+                        error |= 1;
+                    } catch (...) {
+                        if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: unknown exception processing '%s'\n", file.c_str());
+                        error |= 1;
+                    }
                 }
             }
 #else
@@ -678,3 +774,27 @@ int main(int argc, const char * argv[]) {
     else {Usage();}
     return error.load(std::memory_order_seq_cst);
 }
+
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+int main(int argc, const char * argv[]) {
+    int wargc = 0;
+    LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    if (!wargv) {
+        return run_main(argc, argv);
+    }
+    std::vector<std::string> argv_utf8; argv_utf8.reserve(wargc);
+    for (int i = 0; i < wargc; ++i){
+        char* tmp = wchar_to_utf8(wargv[i]);
+        if (tmp) { argv_utf8.emplace_back(tmp); free(tmp); }
+        else { argv_utf8.emplace_back(); }
+    }
+    std::vector<const char*> argv_c; argv_c.reserve(wargc);
+    for(auto &s: argv_utf8) argv_c.push_back(s.c_str());
+    LocalFree(wargv);
+    return run_main(wargc, argv_c.data());
+}
+#else
+int main(int argc, const char * argv[]) { return run_main(argc, argv); }
+#endif
