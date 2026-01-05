@@ -23,6 +23,29 @@
 #include "main.h"
 #include "support.h"
 #include "unicode_path.h"
+#include <setjmp.h>
+
+/* Custom error handler for libjpeg that doesn't call exit() */
+struct my_error_mgr {
+  struct jpeg_error_mgr pub;	/* "public" fields */
+  jmp_buf setjmp_buffer;	/* for return to caller */
+};
+
+typedef struct my_error_mgr * my_error_ptr;
+
+METHODDEF(void)
+my_error_exit (j_common_ptr cinfo)
+{
+  /* cinfo->err really points to a my_error_mgr struct, so coerce it */
+  my_error_ptr myerr = (my_error_ptr) cinfo->err;
+
+  /* Always display the message. */
+  /* We could postpone this until after returning, if we chose. */
+  (*cinfo->err->output_message) (cinfo);
+
+  /* Return control to the setjmp point */
+  longjmp(myerr->setjmp_buffer, 1);
+}
 
 static size_t jcopy_markers_execute_s (j_decompress_ptr srcinfo, j_compress_ptr dstinfo)
 {
@@ -164,21 +187,45 @@ int mozjpegtran (bool arithmetic, bool progressive, bool strip, unsigned autorot
 {
   struct jpeg_decompress_struct srcinfo;
   struct jpeg_compress_struct dstinfo;
-  struct jpeg_error_mgr jsrcerr, jdsterr;
+  struct my_error_mgr jsrcerr, jdsterr;
   jpeg_transform_info transformoption; /* image transformation options */
   FILE * fp;
   unsigned char *outbuffer = 0;
   unsigned long outsize = 0;
   size_t extrasize = 0;
   unsigned char copy_exif = 0;
-  /* Initialize the JPEG decompression object with default error handling. */
-  srcinfo.err = jpeg_std_error(&jsrcerr);
-  srcinfo.err->output_message = output_message;
+
+  /* Initialize the JPEG decompression object with custom error handling. */
+  srcinfo.err = jpeg_std_error(&jsrcerr.pub);
+  jsrcerr.pub.error_exit = my_error_exit;
+  jsrcerr.pub.output_message = output_message;
   const char* addon = Infile;
-  srcinfo.err->addon_message_table = &addon;
+  jsrcerr.pub.addon_message_table = &addon;
+
+  /* Initialize the JPEG compression object with custom error handling. */
+  dstinfo.err = jpeg_std_error(&jdsterr.pub);
+  jdsterr.pub.error_exit = my_error_exit;
+
+  /* Set up error handling with setjmp */
+  if (setjmp(jsrcerr.setjmp_buffer)) {
+    /* If we get here, there was a JPEG error in decompression */
+    jpeg_destroy_compress(&dstinfo);
+    jpeg_destroy_decompress(&srcinfo);
+    free(outbuffer);
+    if (fp) fclose(fp);
+    return 2;
+  }
+
+  if (setjmp(jdsterr.setjmp_buffer)) {
+    /* If we get here, there was a JPEG error in compression */
+    jpeg_destroy_compress(&dstinfo);
+    jpeg_destroy_decompress(&srcinfo);
+    free(outbuffer);
+    if (fp) fclose(fp);
+    return 2;
+  }
+
   jpeg_create_decompress(&srcinfo);
-  /* Initialize the JPEG compression object with default error handling. */
-  dstinfo.err = jpeg_std_error(&jdsterr);
   jpeg_create_compress(&dstinfo);
   if (!progressive){
     jpeg_c_set_int_param(&dstinfo, JINT_COMPRESS_PROFILE, JCP_FASTEST);
@@ -198,7 +245,9 @@ int mozjpegtran (bool arithmetic, bool progressive, bool strip, unsigned autorot
   unsigned char* inbuffer = (unsigned char*)malloc(insize);
   if (!inbuffer) {
     fprintf(stderr, "ECT: memory allocation failure\n");
-    exit(1);
+    jpeg_destroy_compress(&dstinfo);
+    jpeg_destroy_decompress(&srcinfo);
+    return 2;
   }
 
   if (fread(inbuffer, 1, insize, fp) < (size_t)insize) {
