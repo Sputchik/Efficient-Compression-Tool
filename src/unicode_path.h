@@ -24,6 +24,8 @@ int GetFullPathUtf8(const char* path, char* outBuf, int outBufSize);
 #ifdef _WIN32
 #include "zlib/zlib.h"
 #include "zlib/gzguts.h"
+#else
+#include <zlib.h>
 #endif
 
 gzFile gzopen_utf8(const char* filename, const char* mode);
