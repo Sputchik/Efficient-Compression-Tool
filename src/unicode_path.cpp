@@ -1,6 +1,7 @@
 #include "unicode_path.h"
 #include <string>
 #include <vector>
+#include <cstring>
 #include <errno.h>
 
 #ifdef _WIN32
