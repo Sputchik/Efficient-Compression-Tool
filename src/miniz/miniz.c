@@ -1,5 +1,6 @@
 #include "miniz.h"
 #include "../zlib/zlib.h"
+#include "../unicode_path.h"
 
 #include <string.h>
 #include <assert.h>
