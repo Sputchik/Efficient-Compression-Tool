@@ -3,6 +3,17 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+#ifndef __cplusplus
+  /* Make `bool` available when compiling as C (MSVC C may not have <stdbool.h>) */
+  #if defined(_MSC_VER) && !defined(__STDBOOL_H)
+    typedef int bool;
+    #define true 1
+    #define false 0
+  #else
+    #include <stdbool.h>
+  #endif
+#endif
+
 // UTF-8 aware wrappers for file system operations. On Windows these convert
 // UTF-8 input to UTF-16 and call wide APIs; on other platforms they forward
 // to the standard C APIs.
