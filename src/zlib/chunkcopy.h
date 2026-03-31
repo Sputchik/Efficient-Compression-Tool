@@ -54,7 +54,9 @@ typedef uint8x16_t z_vec128i_t;
 #include <emmintrin.h>
 typedef __m128i z_vec128i_t;
 #else
-#error chunkcopy.h inflate chunk SIMD is not defined for your build target
+/* For Emscripten and other targets without explicit SIMD support, use generic implementation */
+#define INFLATE_CHUNK_GENERIC
+typedef struct { unsigned char data[16]; } z_vec128i_t;
 #endif
 
 /*
@@ -270,6 +272,58 @@ static inline z_vec128i_t v_load8_dup(const void* src) {
  */
 static inline void v_store_128(void* out, const z_vec128i_t vec) {
   _mm_storeu_si128((__m128i*)out, vec);
+}
+#elif defined(INFLATE_CHUNK_GENERIC)
+/*
+ * Generic implementations for when SIMD is not available (Emscripten, etc).
+ * These use simple memcpy operations on the struct.
+ */
+
+static inline z_vec128i_t v_load64_dup(const void* src) {
+  z_vec128i_t v;
+  int64_t val;
+  Z_BUILTIN_MEMCPY(&val, src, sizeof(val));
+  /* Duplicate 64-bit value into both 64-bit halves */
+  Z_BUILTIN_MEMCPY(v.data, &val, 8);
+  Z_BUILTIN_MEMCPY(v.data + 8, &val, 8);
+  return v;
+}
+
+static inline z_vec128i_t v_load32_dup(const void* src) {
+  z_vec128i_t v;
+  int32_t val;
+  int i;
+  Z_BUILTIN_MEMCPY(&val, src, sizeof(val));
+  /* Duplicate 32-bit value into all four 32-bit slots */
+  for (i = 0; i < 4; i++)
+    Z_BUILTIN_MEMCPY(v.data + i*4, &val, 4);
+  return v;
+}
+
+static inline z_vec128i_t v_load16_dup(const void* src) {
+  z_vec128i_t v;
+  int16_t val;
+  int i;
+  Z_BUILTIN_MEMCPY(&val, src, sizeof(val));
+  /* Duplicate 16-bit value into all eight 16-bit slots */
+  for (i = 0; i < 8; i++)
+    Z_BUILTIN_MEMCPY(v.data + i*2, &val, 2);
+  return v;
+}
+
+static inline z_vec128i_t v_load8_dup(const void* src) {
+  z_vec128i_t v;
+  unsigned char val;
+  int i;
+  Z_BUILTIN_MEMCPY(&val, src, 1);
+  /* Duplicate 8-bit value into all sixteen slots */
+  for (i = 0; i < 16; i++)
+    v.data[i] = val;
+  return v;
+}
+
+static inline void v_store_128(void* out, const z_vec128i_t vec) {
+  Z_BUILTIN_MEMCPY(out, vec.data, 16);
 }
 #endif
 

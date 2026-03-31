@@ -97,6 +97,7 @@ endif()
 
 #Enable vector extensions. May also add these for ARM if needed.
 #32-bit x86 is no longer officially supported and might not work, but do enable the compile flags for it.
+if(NOT EMSCRIPTEN)
 if(CPU_TYPE STREQUAL "x86_64" OR CPU_TYPE STREQUAL "i386")
   add_definitions(-DADLER32_SIMD_SSSE3)
   add_definitions(-DINFLATE_CHUNK_SIMD_SSE2)
@@ -119,6 +120,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clan
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc")
   endif()
+endif()
 endif()
 
 # Enable ZLIB_CONST for everything
