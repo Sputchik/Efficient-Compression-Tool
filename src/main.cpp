@@ -29,6 +29,18 @@ static std::atomic<size_t> processedfiles;
 static std::atomic<size_t> bytes;
 static std::atomic<long long> savings;
 
+#ifdef _WIN32
+static std::atomic<size_t> windowTitleProgress;
+static std::atomic<size_t> windowTitleTotal;
+static std::atomic<bool> windowTitleUpdateEnabled(false);
+
+static void SetWindowTitleProgress(size_t done, size_t total) {
+    char title[64];
+    snprintf(title, sizeof(title), "%zu/%zu", done, total);
+    SetConsoleTitleA(title);
+}
+#endif
+
 static void Usage() {
     printf (
             "Efficient Compression Tool\n"
@@ -528,6 +540,12 @@ static void multithreadFileLoop(const std::vector<std::string> &fileList, std::a
             localError = 1;
         }
         error->fetch_or(localError);
+#ifdef _WIN32
+        if (windowTitleUpdateEnabled.load(std::memory_order_acquire)) {
+            size_t done = windowTitleProgress.fetch_add(1, std::memory_order_relaxed) + 1;
+            SetWindowTitleProgress(done, windowTitleTotal.load(std::memory_order_acquire));
+        }
+#endif
     }
 }
 
@@ -558,6 +576,7 @@ static int run_main(int argc, const char * argv[]) {
     Options.keep = false;
     std::vector<int> args;
     int files = 0;
+    bool folderInput = false;
     if (argc >= 2){
         for (int i = 1; i < argc; i++) {
             int strlen = strnlen(argv[i], 64);  //File names may be longer and are unaffected by this check
@@ -643,6 +662,7 @@ static int run_main(int argc, const char * argv[]) {
                         fileList.push_back(argv[args[j]]);
                     }
                     else if (std::filesystem::is_directory(wp)){
+                        folderInput = true;
                         if(Options.Recurse){
                             try {
                                 for (auto& p : std::filesystem::recursive_directory_iterator(wp, std::filesystem::directory_options::skip_permission_denied)){
@@ -731,6 +751,14 @@ static int run_main(int argc, const char * argv[]) {
                 fileList.push_back(argv[args[j]]);
 #endif
             }
+#ifdef _WIN32
+            if (folderInput && !fileList.empty()) {
+                windowTitleProgress.store(0, std::memory_order_relaxed);
+                windowTitleTotal.store(fileList.size(), std::memory_order_relaxed);
+                windowTitleUpdateEnabled.store(true, std::memory_order_release);
+                SetWindowTitleProgress(0, windowTitleTotal.load(std::memory_order_acquire));
+            }
+#endif
 #ifndef NOMULTI
             if (getenv("ECT_DEBUG")){
                 for (const auto& f : fileList){
@@ -758,6 +786,12 @@ static int run_main(int argc, const char * argv[]) {
                         if (getenv("ECT_DEBUG")) fprintf(stderr, "ECT_DEBUG: unknown exception processing '%s'\n", file.c_str());
                         error |= 1;
                     }
+#ifdef _WIN32
+                    if (windowTitleUpdateEnabled.load(std::memory_order_acquire)) {
+                        size_t done = windowTitleProgress.fetch_add(1, std::memory_order_relaxed) + 1;
+                        SetWindowTitleProgress(done, windowTitleTotal.load(std::memory_order_acquire));
+                    }
+#endif
                 }
             }
 #else
@@ -769,6 +803,11 @@ static int run_main(int argc, const char * argv[]) {
 
         if(!files){Usage();}
 
+#ifdef _WIN32
+        if (windowTitleUpdateEnabled.load(std::memory_order_acquire)) {
+            windowTitleUpdateEnabled.store(false, std::memory_order_release);
+        }
+#endif
         if(Options.SavingsCounter){ECT_ReportSavings();}
     }
     else {Usage();}
